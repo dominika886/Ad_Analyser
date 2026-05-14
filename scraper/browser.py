@@ -3,7 +3,9 @@ import random
 from pathlib import Path
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
-CHROMIUM_EXECUTABLE = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+# Use sandbox pre-installed Chromium if present, otherwise let Playwright find its own.
+_SANDBOX_CHROMIUM = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+CHROMIUM_EXECUTABLE = _SANDBOX_CHROMIUM if Path(_SANDBOX_CHROMIUM).exists() else None
 
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -16,8 +18,7 @@ class BrowserManager:
 
     async def __aenter__(self) -> BrowserContext:
         self._pw = await async_playwright().start()
-        self._browser: Browser = await self._pw.chromium.launch(
-            executable_path=CHROMIUM_EXECUTABLE,
+        launch_kwargs = dict(
             headless=True,
             args=[
                 "--no-sandbox",
@@ -26,6 +27,9 @@ class BrowserManager:
                 "--disable-infobars",
             ],
         )
+        if CHROMIUM_EXECUTABLE:
+            launch_kwargs["executable_path"] = CHROMIUM_EXECUTABLE
+        self._browser: Browser = await self._pw.chromium.launch(**launch_kwargs)
         self._context: BrowserContext = await self._browser.new_context(
             user_agent=USER_AGENT,
             viewport={"width": 1440, "height": 900},
