@@ -10,21 +10,19 @@ import argparse
 import asyncio
 import logging
 import os
-import sys
 
 from scraper.browser import BrowserManager
 from scraper.linkedin_ad_library import LinkedInAdLibraryScraper
-from scraper.models import CompanyProfile
 from scraper.report import generate_report
 from scraper.website_analyser import analyse_website
 
 # Known competitors for reviews.io in the review/reputation management space
 DEFAULT_COMPETITORS = [
-    ("Trustpilot", "https://www.trustpilot.com", "trustpilot"),
-    ("Feefo", "https://www.feefo.com", "feefo"),
-    ("Yotpo", "https://www.yotpo.com", "yotpo"),
-    ("Birdeye", "https://birdeye.com", "birdeye"),
-    ("Judge.me", "https://judge.me", "judge-me"),
+    ("Trustpilot", "https://business.trustpilot.com"),
+    ("Feefo", "https://www.feefo.com"),
+    ("Yotpo", "https://www.yotpo.com"),
+    ("Birdeye", "https://birdeye.com"),
+    ("Judge.me", "https://judge.me"),
 ]
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "CI_reviewsio")
@@ -44,22 +42,21 @@ def parse_args():
 async def run(args):
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # Website analysis (sync, no browser needed)
-    print(f"\n[1/3] Analysing {args.company} website...")
-    target_profile = analyse_website(args.company, args.url)
-
-    # LinkedIn ad analysis (browser needed)
-    print(f"[2/3] Fetching LinkedIn ads for {args.company}...")
     async with BrowserManager() as context:
         scraper = LinkedInAdLibraryScraper(context)
+
+        print(f"\n[1/3] Analysing {args.company} website...")
+        target_profile = await analyse_website(context, args.company, args.url)
+
+        print(f"[2/3] Fetching LinkedIn ads for {args.company}...")
         target_ads = await scraper.search(args.company, args.output_dir)
 
         competitors = []
         if not args.skip_competitors:
             print(f"[3/3] Analysing {len(DEFAULT_COMPETITORS)} competitors...")
-            for name, url, slug in DEFAULT_COMPETITORS:
+            for name, url in DEFAULT_COMPETITORS:
                 print(f"  → {name}")
-                prof = analyse_website(name, url)
+                prof = await analyse_website(context, name, url)
                 ads = await scraper.search(name, args.output_dir)
                 competitors.append((prof, ads))
 
@@ -69,11 +66,14 @@ async def run(args):
     print(f"  LinkedIn Ads: {target_ads.total_ads}")
     if target_ads.error:
         print(f"  Note:         {target_ads.error}")
+    if target_profile.title:
+        print(f"  Page title:   {target_profile.title}")
     if competitors:
-        print(f"\n  Competitor LinkedIn ad counts:")
+        print(f"\n  Competitor breakdown:")
         for prof, ads in competitors:
+            title_hint = f" — {prof.title[:40]}" if prof.title else ""
             note = f"  [{ads.error}]" if ads.error else ""
-            print(f"    {prof.name:<20} {ads.total_ads}{note}")
+            print(f"    {prof.name:<20} {ads.total_ads} ads{note}{title_hint}")
     print(f"{'='*55}\n")
 
     # Generate report
